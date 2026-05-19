@@ -5,23 +5,27 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import google.generativeai as genai
 
-# Setup Logging
+# Setup Logging agar error terlihat jelas di Railway Logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # Mengambil Environment Variables dari Railway
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# Validasi awal agar bot tidak crash jika token kosong
+if not BOT_TOKEN:
+    raise ValueError("ERROR: Variabel TELEGRAM_BOT_TOKEN belum diisi di Railway!")
+if not GEMINI_API_KEY:
+    raise ValueError("ERROR: Variabel GEMINI_API_KEY belum diisi di Railway!")
+
 # Inisialisasi AI Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 ai_model = genai.GenerativeModel('gemini-pro')
 
-# 1. Fitur Utama: Mengambil Data Airdrop Koin Gratis via API
+# 1. Fitur Utama: Mengambil Data Airdrop Koin Gratis via API Trending CoinGecko
 def fetch_crypto_airdrops():
     try:
-        # Menggunakan API publik gratis atau bisa diganti dengan scraper/API premium
-        # Contoh di bawah menggunakan endpoint mock/publik yang mensimulasikan data airdrop aktual
-        url = "https://api.coingecko.com/api/v3/search/trending" # Sebagai basis contoh koin tren baru
+        url = "https://api.coingecko.com/api/v3/search/trending"
         response = requests.get(url, timeout=10).json()
         
         airdrop_msg = "🎁 *Daftar Potensi Airdrop & Koin Gratis Terbaru:* \n\n"
@@ -69,17 +73,19 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🧠 Maaf, otak AI saya sedang mengalami gangguan jaringan saat memproses jawaban.")
 
 def main():
-    # Inisialisasi Bot Telegram menggunakan Polling (Sangat cocok untuk Railway)
+    # Inisialisasi Bot Telegram
     app = Application.builder().token(BOT_TOKEN).build()
 
     # Registrasi Command & Message Handlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("airdrop", airdrop_command))
+    
+    # Memastikan memfilter teks biasa dan mengabaikan pesan command (/)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ai_chat))
 
-    # Mulai menjalankan Bot
-    logging.info("Bot sukses dijalankan...")
-    app.run_polling()
+    # Mulai menjalankan Bot dengan Polling
+    logging.info("Memulai polling bot...")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
