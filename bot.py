@@ -12,18 +12,17 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# Tambahkan ini di Railway Variables jika ingin menggarap transaksi Web3 asli
 RPC_URL = os.getenv("RPC_URL", "https://bsc-dataseed.binance.org/") 
 PRIVATE_KEY = os.getenv("PRIVATE_KEY") 
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
-# Inisialisasi Klien AI Gemini (SDK Baru 2026)
+# Inisialisasi Klien AI Gemini
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# Fungsi Mencari Airdrop (Mencari)
+# Fungsi Mencari Airdrop
 async def fetch_crypto_airdrops():
     try:
         url = "https://api.coingecko.com/api/v3/search/trending"
@@ -40,24 +39,20 @@ async def fetch_crypto_airdrops():
     except Exception as e:
         return "❌ Gagal mengambil data airdrop."
 
-# Fungsi Menggarap / Eksekusi Transaksi Otomatis (Menggarap)
+# Fungsi Menggarap / Eksekusi Transaksi Otomatis
 async def execute_auto_claim():
     if not PRIVATE_KEY:
         return "⚠️ Fitur garap otomatis belum aktif. Anda harus mengisi `PRIVATE_KEY` dompet burner di Railway Variables."
     
     try:
-        # Menghubungkan ke dompet secara aman
         account = w3.eth.account.from_key(PRIVATE_KEY)
         wallet_address = account.address
-        
-        # Cek saldo BNB/Gas fee terlebih dahulu
         balance_wei = w3.eth.get_balance(wallet_address)
         balance = w3.from_wei(balance_wei, 'ether')
         
         if balance < 0.001:
             return f"❌ Saldo Gas Fee di dompet `{wallet_address[:6]}...{wallet_address[-4:]}` tidak cukup untuk menggarap transaksi."
             
-        # Teks Log jika sukses simulasi/eksekusi interaksi kontrak
         return f"✅ *Proses Garap Sukses!* \n🤖 Bot berhasil berinteraksi dengan jaringan menggunakan dompet: `{wallet_address[:6]}...{wallet_address[-4:]}`\nStatus: Menunggu distribusi koin gratis."
     except Exception as e:
         logging.error(f"Gagal menggarap: {e}")
@@ -86,37 +81,49 @@ async def garap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await execute_auto_claim()
     await update.message.reply_text(result, parse_mode="Markdown")
 
-# Handler Chat AI Mandiri (SUDAH DIPERBAIKI MENGGUNAKAN MODEL VERSI BARU)
+# Handler Chat AI Mandiri dengan Fitur Auto-Retry jika Server Google Padat
 async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     system_prompt = f"Anda adalah AI expert crypto. Jawab dengan cerdas, ringkas, dan jelas: {user_message}"
     
-    try:
-        loop = asyncio.get_event_loop()
-        
-        # Perbaikan krusial: Menggunakan 'gemini-2.5-flash' yang didukung penuh SDK baru tahun 2026
-        def call_gemini():
-            return ai_client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=system_prompt
+    max_retries = 3
+    retry_delay = 2  # Waktu tunggu sebelum coba lagi (detik)
+    
+    for attempt in range(max_retries):
+        try:
+            loop = asyncio.get_event_loop()
+            
+            def call_gemini():
+                return ai_client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=system_prompt
+                )
+                
+            response = await loop.run_in_executor(None, call_gemini)
+            
+            if response and hasattr(response, 'text') and response.text:
+                await update.message.reply_text(response.text)
+                return  # Sukses keluar dari fungsi
+            else:
+                await update.message.reply_text("🧠 AI terhubung, tetapi menghasilkan jawaban kosong. Coba tanyakan hal lain.")
+                return
+                
+        except Exception as e:
+            # Jika errornya karena server padat (503) dan jatah mencoba masih ada, kita tunggu lalu coba lagi
+            if "503" in str(e) and attempt < max_retries - 1:
+                logging.warning(f"Server padat (Cobaan ke-{attempt+1}), mencoba kembali dalam {retry_delay} detik...")
+                await asyncio.sleep(retry_delay)
+                continue
+                
+            # Jika sudah mentok gagal terus atau error jenis lain, kirim pesan error
+            logging.error(f"⚠️ GEMINI API ERROR: {str(e)}")
+            error_message = (
+                "🧠 *Otak AI sedang gangguan!*\n\n"
+                f"🔍 *Detail Error Resmi:* `{str(e)}`\n\n"
+                "💡 _Catatan: Server Google gratisan sedang sangat padat. Coba kirim pesan lagi dalam 1-2 menit ke depan._"
             )
-            
-        response = await loop.run_in_executor(None, call_gemini)
-        
-        if response and hasattr(response, 'text') and response.text:
-            await update.message.reply_text(response.text)
-        else:
-            await update.message.reply_text("🧠 AI terhubung, tetapi menghasilkan jawaban kosong. Coba tanyakan hal lain.")
-            
-    except Exception as e:
-        logging.error(f"⚠️ GEMINI API ERROR: {str(e)}")
-        
-        error_message = (
-            "🧠 *Otak AI sedang gangguan!*\n\n"
-            f"🔍 *Detail Error Resmi:* `{str(e)}`\n\n"
-            "💡 _Saran: Jika error masih berlanjut, hubungi developer._"
-        )
-        await update.message.reply_text(error_message, parse_mode="Markdown")
+            await update.message.reply_text(error_message, parse_mode="Markdown")
+            return
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
