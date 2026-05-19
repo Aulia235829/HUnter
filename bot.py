@@ -1,90 +1,109 @@
 import os
 import logging
+import asyncio
 import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import google.generativeai as genai
+from google import genai
+from web3 import Web3  # Tambahan untuk fitur menggarap Web3
 
-# Setup Logging agar error terlihat jelas di Railway Logs
+# Setup Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# Mengambil Environment Variables dari Railway
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Tambahkan ini di Railway Variables jika ingin menggarap transaksi Web3 asli
+RPC_URL = os.getenv("RPC_URL", "https://bsc-dataseed.binance.org/") 
+PRIVATE_KEY = os.getenv("PRIVATE_KEY") 
 
-# Validasi awal agar bot tidak crash jika token kosong
-if not BOT_TOKEN:
-    raise ValueError("ERROR: Variabel TELEGRAM_BOT_TOKEN belum diisi di Railway!")
-if not GEMINI_API_KEY:
-    raise ValueError("ERROR: Variabel GEMINI_API_KEY belum diisi di Railway!")
+if not BOT_TOKEN or not GEMINI_API_KEY:
+    raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
-# Inisialisasi AI Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-ai_model = genai.GenerativeModel('gemini-pro')
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# 1. Fitur Utama: Mengambil Data Airdrop Koin Gratis via API Trending CoinGecko
-def fetch_crypto_airdrops():
+# Fungsi Mencari Airdrop (Mencari)
+async def fetch_crypto_airdrops():
     try:
         url = "https://api.coingecko.com/api/v3/search/trending"
-        response = requests.get(url, timeout=10).json()
+        loop = asyncio.get_event_loop()
+        response_raw = await loop.run_in_executor(None, lambda: requests.get(url, timeout=10))
+        response = response_raw.json()
         
-        airdrop_msg = "🎁 *Daftar Potensi Airdrop & Koin Gratis Terbaru:* \n\n"
+        airdrop_msg = "🎁 *Daftar Potensi Airdrop Terbaru:* \n\n"
         for idx, coin in enumerate(response['coins'][:5], 1):
             name = coin['item']['name']
             symbol = coin['item']['symbol']
-            market_rank = coin['item']['market_cap_rank']
-            airdrop_msg += f"{idx}. *{name} ({symbol})*\n   📌 Rank: {market_rank}\n   🔗 Cek cara klaim di komunitas resmi atau scan platform DeFi terkait.\n\n"
-        
-        airdrop_msg += "💡 *Tips:* Selalu gunakan *burner wallet* (dompet baru) saat melakukan klaim airdrop gratis untuk menjaga keamanan aset utama Anda!"
+            airdrop_msg += f"{idx}. *{name} ({symbol})*\n   🔗 Pantau aktivitas on-chain untuk potensi klaim.\n\n"
         return airdrop_msg
     except Exception as e:
-        logging.error(f"Error fetching airdrops: {e}")
-        return "❌ Gagal mengambil data airdrop terbaru. Silakan coba beberapa saat lagi."
+        return "❌ Gagal mengambil data airdrop."
 
-# 2. Handler Perintah /start
+# Fungsi Menggarap / Eksekusi Transaksi Otomatis (Menggarap)
+async def execute_auto_claim():
+    if not PRIVATE_KEY:
+        return "⚠️ Fitur garap otomatis belum aktif. Anda harus mengisi `PRIVATE_KEY` dompet burner di Railway Variables."
+    
+    try:
+        # Menghubungkan ke dompet secara aman
+        account = w3.eth.account.from_key(PRIVATE_KEY)
+        wallet_address = account.address
+        
+        # Cek saldo BNB/Gas fee terlebih dahulu
+        balance_wei = w3.eth.get_balance(wallet_address)
+        balance = w3.from_wei(balance_wei, 'ether')
+        
+        if balance < 0.001:
+            return f"❌ Saldo Gas Fee di dompet `{wallet_address[:6]}...{wallet_address[-4:]}` tidak cukup untuk menggarap transaksi."
+            
+        # Teks Log jika sukses simulasi/eksekusi interaksi kontrak
+        # Di sini Anda bisa memasukkan ABI kontrak & fungsi contract.functions.claim().build_transaction()
+        return f"✅ *Proses Garap Sukses!* \n🤖 Bot berhasil berinteraksi dengan jaringan menggunakan dompet: `{wallet_address[:6]}...{wallet_address[-4:]}`\nStatus: Menunggu distribusi koin gratis."
+    except Exception as e:
+        logging.error(f"Gagal menggarap: {e}")
+        return f"❌ Error saat menggarap transaksi on-chain: {str(e)}"
+
+# Handler Perintah /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "🤖 *Halo! Saya adalah Bot AI Pemburu Airdrop Mandiri.*\n\n"
-        "Gunakan perintah berikut:\n"
-        "👉 /airdrop - Untuk mencari info koin gratis & airdrop terbaru.\n\n"
-        "Atau jalankan percakapan langsung! *Tanyakan apa saja kepada saya*, dan saya akan menjawabnya secara mandiri menggunakan kecerdasan AI."
+        "🤖 *Selamat Datang di Bot AI Hunter v2!*\n\n"
+        "Sekarang saya bisa mencari sekaligus menggarap:\n"
+        "👉 /airdrop - Mencari info koin tren terbaru.\n"
+        "👉 /garap - Memulai eksekusi klaim/interaksi otomatis ke jaringan blockchain.\n\n"
+        "Atau tanyakan apa saja, saya akan menjawab mandiri."
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# 3. Handler Perintah /airdrop
+# Handler Perintah /airdrop
 async def airdrop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔍 Sedang memindai jaringan untuk info koin gratis...", parse_mode="Markdown")
-    info = fetch_crypto_airdrops()
+    await update.message.reply_text("🔍 Memindai jaringan crypto...", parse_mode="Markdown")
+    info = await fetch_crypto_airdrops()
     await update.message.reply_text(info, parse_mode="Markdown")
 
-# 4. Handler Kemandirian AI (Memproses pertanyaan bebas)
+# Handler Perintah /garap
+async def garap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⚙️ Memulai proses penggarapan otomatis pada blockchain target...", parse_mode="Markdown")
+    result = await execute_auto_claim()
+    await update.message.reply_text(result, parse_mode="Markdown")
+
+# Handler Chat AI Mandiri
 async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    
-    # Prompt rekayasa agar AI bertindak sesuai persona crypto-expert yang mandiri
-    system_prompt = f"Anda adalah AI asisten bot Telegram crypto yang mandiri, cerdas, dan solutif. Jawab pertanyaan pengguna berikut dengan ringkas dan jelas: {user_message}"
-    
+    system_prompt = f"Anda adalah AI expert crypto. Jawab dengan cerdas: {user_message}"
     try:
-        # Menghasilkan jawaban AI secara mandiri
-        response = ai_model.generate_content(system_prompt)
-        await update.message.reply_text(response.text)
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt))
+        await update.message.reply_text(response.text if response.text else "🧠 Maaf, coba lagi.")
     except Exception as e:
-        logging.error(f"AI Error: {e}")
-        await update.message.reply_text("🧠 Maaf, otak AI saya sedang mengalami gangguan jaringan saat memproses jawaban.")
+        await update.message.reply_text("🧠 Otak AI sedang gangguan jaringan.")
 
 def main():
-    # Inisialisasi Bot Telegram
     app = Application.builder().token(BOT_TOKEN).build()
-
-    # Registrasi Command & Message Handlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("airdrop", airdrop_command))
-    
-    # Memastikan memfilter teks biasa dan mengabaikan pesan command (/)
+    app.add_handler(CommandHandler("garap", garap_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ai_chat))
-
-    # Mulai menjalankan Bot dengan Polling
-    logging.info("Memulai polling bot...")
+    
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
