@@ -19,6 +19,7 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
+# Inisialisasi Klien AI Gemini (SDK Baru 2026)
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
@@ -85,7 +86,7 @@ async def garap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await execute_auto_claim()
     await update.message.reply_text(result, parse_mode="Markdown")
 
-# Handler Chat AI Mandiri (SUDAH DIPERBAIKI TOTAL & BISA LAPOR ERROR LANGSUNG)
+# Handler Chat AI Mandiri (SUDAH DIPERBAIKI MENGGUNAKAN MODEL VERSI BARU)
 async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     system_prompt = f"Anda adalah AI expert crypto. Jawab dengan cerdas, ringkas, dan jelas: {user_message}"
@@ -93,10 +94,10 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         loop = asyncio.get_event_loop()
         
-        # Penulisan pemanggilan fungsi Gemini SDK Baru yang dibungkus dengan benar
+        # Perbaikan krusial: Menggunakan 'gemini-2.5-flash' yang didukung penuh SDK baru tahun 2026
         def call_gemini():
             return ai_client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.5-flash',
                 contents=system_prompt
             )
             
@@ -110,11 +111,10 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"⚠️ GEMINI API ERROR: {str(e)}")
         
-        # Kirim error aslinya ke Telegram Anda agar mudah dilacak tanpa buka Railway
         error_message = (
             "🧠 *Otak AI sedang gangguan!*\n\n"
             f"🔍 *Detail Error Resmi:* `{str(e)}`\n\n"
-            "💡 _Saran: Jika error berisi '403', '400', atau 'API_KEY_INVALID', cek kembali GEMINI_API_KEY Anda di Railway._"
+            "💡 _Saran: Jika error masih berlanjut, hubungi developer._"
         )
         await update.message.reply_text(error_message, parse_mode="Markdown")
 
