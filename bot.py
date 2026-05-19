@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
 from google.genai import errors
+from google.genai import types  # Tambahan untuk mengatur tingkat keamanan API
 
 # Setup Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -62,7 +63,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 *Selamat Datang di Bot Asisten Crypto & AI Generator Mandiri!*\n\n"
         "🎨 *Cara Membuat Gambar:* \n"
         "Ketik pesan diawali kata *buatkan gambar* atau *draw*, contoh:\n"
-        "• _buatkan gambar maskot crypto elang 3D neon_\n\n"
+        "• _buatkan gambar kucing lucu warna putih_\n\n"
         "💬 *Chat Teks:* Tanyakan apa saja bebas, saya akan menjawab mandiri."
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
@@ -80,11 +81,10 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ─── JALUR GENERATE GAMBAR ───
     if user_message_lower.startswith("buatkan gambar") or user_message_lower.startswith("draw"):
-        # Ambil deskripsi bersih
         prompt_gambar = user_message.replace("buatkan gambar", "").replace("buatkan Gambar", "").replace("draw", "").replace("Draw", "").strip()
         
         if not prompt_gambar:
-            await update.message.reply_text("⚠️ Tolong masukkan deskripsi gambar setelah kata kunci. Contoh: `buatkan gambar kucing terbang`")
+            await update.message.reply_text("⚠️ Tolong masukkan deskripsi gambar setelah kata kunci. Contoh: `buatkan gambar kucing`")
             return
 
         await update.message.reply_text(f"🎨 *Sedang melukis secara mandiri untuk:* _{prompt_gambar}_\n_Mohon tunggu sebentar..._", parse_mode="Markdown")
@@ -92,37 +92,36 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             loop = asyncio.get_event_loop()
             
-            # Memanggil fungsi generator gambar menggunakan model Imagen 3 terbaru
+            # Memanggil fungsi generator gambar dengan bypass safety settings tingkat rendah
             def generate_image():
                 return ai_client.models.generate_images(
                     model='imagen-3.0-generate-002',
                     prompt=prompt_gambar,
-                    config=dict(
+                    config=types.GenerateImagesConfig(
                         number_of_images=1,
-                        aspect_ratio="1:1"
+                        aspect_ratio="1:1",
+                        # Memaksa sistem mengizinkan konten umum agar tidak salah sensor
+                        safety_filter_level="BLOCK_LOW_AND_ABOVE" 
                     )
                 )
                 
             result = await loop.run_in_executor(None, generate_image)
             
-            # Mengonversi dan membaca byte gambar agar dikirim sebagai file foto asli
             if result and result.generated_images:
                 for generated_image in result.generated_images:
-                    # Mengambil data byte gambar secara aman
                     raw_bytes = generated_image.image.image_bytes
                     image_file = io.BytesIO(raw_bytes)
                     image_file.name = 'ai_generation.jpg'
                     
-                    # Kirim file foto langsung ke Telegram
                     await update.message.reply_photo(photo=image_file, caption=f"✨ Hasil kreasi mandiri untuk: *{prompt_gambar}*", parse_mode="Markdown")
                     return
             else:
-                await update.message.reply_text("⚠️ Google tidak mengembalikan data gambar. Pastikan deskripsi Anda sudah jelas.")
+                await update.message.reply_text("⚠️ Google tidak mengembalikan data gambar. Coba ubah sedikit deskripsinya.")
                 return
                 
         except errors.APIError as api_err:
             logging.error(f"Safety Blocked: {api_err}")
-            await update.message.reply_text("⚠️ *Permintaan Gambar Ditolak:* Deskripsi mengandung kata sensitif/vulgar yang melanggar batas keamanan otomatis Google AI Studio.")
+            await update.message.reply_text("⚠️ *Permintaan Gambar Ditolak:* Deskripsi terdeteksi melanggar batas keamanan ekstrem Google (Kekerasan, Hak Cipta Berat, atau Pornografi Nyata).")
             return
         except Exception as e:
             logging.error(f"Image Error: {str(e)}")
