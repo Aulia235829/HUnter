@@ -96,19 +96,14 @@ async def smart_ai_analyze_and_fill(url):
                 '[{"index": 0, "fill_value": "nilai_data_profil", "detected_as": "Alamat Wallet"}, {"index": 1, "fill_value": "nilai_data_profil", "detected_as": "Username Twitter"}]'
             )
             
-            # DIGANTI KE MODEL 1.5-FLASH BIAR ANTI-LIMIT
             def call_gemini_analysis():
                 res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt)
                 return res.text.strip() if res.text else "[]"
                 
             ai_decision_text = await loop.run_in_executor(None, call_gemini_analysis)
             
-            if ai_decision_text.startswith("```json"):
-                ai_decision_text = ai_decision_text.replace("
-```json", "").replace("```", "").strip()
-            elif ai_decision_text.startswith("```"):
-                ai_decision_text = ai_decision_text.replace("
-```", "").strip()
+            # --- PERBAIKAN BARIS 107 (MENGGUNAKAN STRIP & REPLACE YANG AMAN) ---
+            ai_decision_text = ai_decision_text.strip("`").replace("json", "").strip()
 
             decisions = json.loads(ai_decision_text)
             report_details = ""
@@ -154,7 +149,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Handler Perintah /isi
 async def isi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("⚠️ Format salah. Contoh:\n`/isi [https://situsairdrop.com/join](https://situsairdrop.com/join)`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Format salah. Contoh:\n`/isi https://situsairdrop.com/join`", parse_mode="Markdown")
         return
         
     target_url = context.args[0]
@@ -176,7 +171,6 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg = await update.message.reply_text("🎨 *Sedang memproses lukisan Anda...*", parse_mode="Markdown")
         try:
             loop = asyncio.get_event_loop()
-            # DIUBAH KE MODEL 1.5-FLASH UNTUK PENERJEMAH PROMPT
             def translate_prompt():
                 res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=f"Translate to English: {prompt_gambar}")
                 return res.text.strip() if res.text else prompt_gambar
@@ -202,7 +196,7 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Gagal memproses gambar: `{str(e)}`")
             return
 
-    # CHAT TEKS BIASA - DIUBAH KE MODEL 1.5-FLASH
+    # CHAT TEKS BIASA
     system_prompt = f"Anda adalah AI Asisten Crypto Serbabisa yang mandiri dan solutif. Jawab pertanyaan pengguna: {user_message}"
     try:
         loop = asyncio.get_event_loop()
