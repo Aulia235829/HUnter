@@ -31,7 +31,7 @@ MY_PROFILE_DATA = {
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
-# Inisialisasi Klien AI Gemini terbaru
+# Inisialisasi Klien AI Gemini
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Fungsi Memotong Teks Panjang untuk Telegram
@@ -52,7 +52,7 @@ def split_message(text, max_length=4000):
         text = text[split_at:].lstrip()
     return parts
 
-# 🧠 LOGIKA PINTAR: AI Menganalisis Struktur Form & Mengisi Menggunakan Profil Anda
+# LOGIKA PINTAR: AI Menganalisis Struktur Form & Mengisi Menggunakan Profil Anda
 async def smart_ai_analyze_and_fill(url):
     try:
         async with async_playwright() as p:
@@ -74,7 +74,6 @@ async def smart_ai_analyze_and_fill(url):
                 name_attr = await field.get_attribute("name") or ""
                 id_attr = await field.get_attribute("id") or ""
                 
-                # Masukkan ke daftar struktur untuk dianalisis oleh AI
                 form_structure.append({
                     "index": idx,
                     "tag": tag_name,
@@ -94,10 +93,10 @@ async def smart_ai_analyze_and_fill(url):
                 "Anda adalah AI Detektif Formulir Web. Tugas Anda adalah mencocokkan kolom input situs web dengan data profil pengguna.\n"
                 f"Data Profil Pengguna yang Tersedia: {json.dumps(MY_PROFILE_DATA)}\n\n"
                 f"Struktur Formulir Situs Web: {json.dumps(form_structure)}\n\n"
-                "Instruksi Kelompokkan:\n"
-                "Analisis setiap kolom input berdasarkan 'placeholder', 'name', atau 'id'-nya. Tentukan data profil mana yang paling cocok dimasukkan ke kolom tersebut.\n"
-                "Kembalikan jawaban dalam format JSON murni berbentuk list/array objek seperti contoh ini (jangan beri teks penjelasan tambahan, langsung berformat JSON):\n"
-                '[{"index": 0, "fill_value": "nilai_data_profil", "detected_as": "Alamat Wallet"}, {"index": 1, "fill_value": "nilai_data_profil", "detected_as": "Username Twitter"}]'
+                "Instruksi:\n"
+                "Analisis setiap kolom input berdasarkan placeholder, name, atau id-nya. Tentukan data profil mana yang paling cocok dimasukkan.\n"
+                "Kembalikan jawaban dalam format JSON murni berbentuk list objek seperti contoh ini (jangan beri teks penjelasan tambahan, langsung berformat JSON):\n"
+                '[{"index": 0, "fill_value": "nilai_data_profil", "detected_as": "Alamat Wallet"}]'
             )
             
             def call_gemini_analysis():
@@ -106,13 +105,13 @@ async def smart_ai_analyze_and_fill(url):
                 
             ai_decision_text = await loop.run_in_executor(None, call_gemini_analysis)
             
-            # Bersihkan pembungkus markdown jika AI tidak sengaja memberikannya
-            if ai_decision_text.startswith("```json"):
-                ai_decision_text = ai_decision_text.replace("
-```json", "").replace("```", "").strip()
-            elif ai_decision_text.startswith("```"):
-                ai_decision_text = ai_decision_text.replace("
-```", "").strip()
+            # Perbaikan pembersihan string JSON rapi & aman dari broken quotes
+            if "```" in ai_decision_text:
+                ai_decision_text = ai_decision_text.split("
+```")[1]
+                if ai_decision_text.startswith("json"):
+                    ai_decision_text = ai_decision_text[4:].strip()
+            ai_decision_text = ai_decision_text.strip()
 
             # Jalankan pengisian otomatis berdasarkan keputusan pintar AI
             decisions = json.loads(ai_decision_text)
@@ -123,12 +122,10 @@ async def smart_ai_analyze_and_fill(url):
                 val_to_fill = action["fill_value"]
                 detected_type = action["detected_as"]
                 
-                # Lewati jika AI memutuskan tidak ada data profil yang cocok (kosong)
                 if not val_to_fill or val_to_fill in ["", "none", "null"]:
                     continue
                 
-                # Eksekusi pengetikan teks ke dalam browser virtual
-                await inputs[idx].fill(val_to_fill)
+                await inputs[idx].fill(str(val_to_fill))
                 report_details += f"• Kolom terdeteksi sebagai *{detected_type}* -> Berhasil diisi secara pintar.\n"
 
             # Cari dan klik tombol submit jika ada
@@ -162,13 +159,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Handler Perintah /isi (Smart Auto-Fill)
 async def isi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("⚠️ Format salah. Contoh penggunaan:\n`/isi [https://situsairdrop.com/join](https://situsairdrop.com/join)`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Format salah. Contoh penggunaan:\n`/isi https://situsairdrop.com/join`", parse_mode="Markdown")
         return
         
     target_url = context.args[0]
     await update.message.reply_text("🧠 *AI sedang mendeteksi & menganalisis secara pintar apa saja yang harus diisi pada situs target...*", parse_mode="Markdown")
     
-    # Jalankan penganalisis pintar AI
     report = await smart_ai_analyze_and_fill(target_url)
     await update.message.reply_text(report, parse_mode="Markdown")
 
