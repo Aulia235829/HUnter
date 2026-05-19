@@ -105,12 +105,9 @@ async def smart_ai_analyze_and_fill(url):
                 
             ai_decision_text = await loop.run_in_executor(None, call_gemini_analysis)
             
-            # Perbaikan pembersihan string JSON rapi & aman dari broken quotes
-            if "```" in ai_decision_text:
-                ai_decision_text = ai_decision_text.split("
-```")[1]
-                if ai_decision_text.startswith("json"):
-                    ai_decision_text = ai_decision_text[4:].strip()
+            # Perbaikan Kebal Error: Membersihkan tag markdown tanpa menggunakan penanda kutip tiga yang rawan rusak
+            ai_decision_text = ai_decision_text.replace("json", "")
+            ai_decision_text = ai_decision_text.replace("`", "")
             ai_decision_text = ai_decision_text.strip()
 
             # Jalankan pengisian otomatis berdasarkan keputusan pintar AI
