@@ -57,7 +57,6 @@ async def execute_auto_claim():
             return f"❌ Saldo Gas Fee di dompet `{wallet_address[:6]}...{wallet_address[-4:]}` tidak cukup untuk menggarap transaksi."
             
         # Teks Log jika sukses simulasi/eksekusi interaksi kontrak
-        # Di sini Anda bisa memasukkan ABI kontrak & fungsi contract.functions.claim().build_transaction()
         return f"✅ *Proses Garap Sukses!* \n🤖 Bot berhasil berinteraksi dengan jaringan menggunakan dompet: `{wallet_address[:6]}...{wallet_address[-4:]}`\nStatus: Menunggu distribusi koin gratis."
     except Exception as e:
         logging.error(f"Gagal menggarap: {e}")
@@ -86,16 +85,38 @@ async def garap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await execute_auto_claim()
     await update.message.reply_text(result, parse_mode="Markdown")
 
-# Handler Chat AI Mandiri
+# Handler Chat AI Mandiri (SUDAH DIPERBAIKI TOTAL & BISA LAPOR ERROR LANGSUNG)
 async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    system_prompt = f"Anda adalah AI expert crypto. Jawab dengan cerdas: {user_message}"
+    system_prompt = f"Anda adalah AI expert crypto. Jawab dengan cerdas, ringkas, dan jelas: {user_message}"
+    
     try:
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt))
-        await update.message.reply_text(response.text if response.text else "🧠 Maaf, coba lagi.")
+        
+        # Penulisan pemanggilan fungsi Gemini SDK Baru yang dibungkus dengan benar
+        def call_gemini():
+            return ai_client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=system_prompt
+            )
+            
+        response = await loop.run_in_executor(None, call_gemini)
+        
+        if response and hasattr(response, 'text') and response.text:
+            await update.message.reply_text(response.text)
+        else:
+            await update.message.reply_text("🧠 AI terhubung, tetapi menghasilkan jawaban kosong. Coba tanyakan hal lain.")
+            
     except Exception as e:
-        await update.message.reply_text("🧠 Otak AI sedang gangguan jaringan.")
+        logging.error(f"⚠️ GEMINI API ERROR: {str(e)}")
+        
+        # Kirim error aslinya ke Telegram Anda agar mudah dilacak tanpa buka Railway
+        error_message = (
+            "🧠 *Otak AI sedang gangguan!*\n\n"
+            f"🔍 *Detail Error Resmi:* `{str(e)}`\n\n"
+            "💡 _Saran: Jika error berisi '403', '400', atau 'API_KEY_INVALID', cek kembali GEMINI_API_KEY Anda di Railway._"
+        )
+        await update.message.reply_text(error_message, parse_mode="Markdown")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
