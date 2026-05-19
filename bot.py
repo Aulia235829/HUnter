@@ -15,10 +15,33 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
-# Inisialisasi Klien AI Gemini terbaru (Standar 2026)
+# Inisialisasi Klien AI Gemini terbaru
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# 1. Fitur Utama: Memindai Tren Airdrop & Pasar Terkini via API Publik
+# Fungsi Memotong Teks Panjang agar Aman dari Limit Telegram (Max 4000 char per part)
+def split_message(text, max_length=4000):
+    if len(text) <= max_length:
+        return [text]
+    
+    parts = []
+    while text:
+        if len(text) <= max_length:
+            parts.append(text)
+            break
+        
+        # Cari batas potongan terbaik pada karakter baris baru (\n) agar teks rapi
+        split_at = text.rfind('\n', 0, max_length)
+        if split_at == -1:
+            # Jika tidak ada baris baru, cari potongan pada spasi terakhir
+            split_at = text.rfind(' ', 0, max_length)
+            if split_at == -1:
+                split_at = max_length
+        
+        parts.append(text[:split_at])
+        text = text[split_at:].lstrip()
+    return parts
+
+# 1. Fitur Utama: Memindai Tren Pasar via API Publik
 async def fetch_alpha_trends():
     try:
         url = "https://api.coingecko.com/api/v3/search/trending"
@@ -52,8 +75,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💬 *Kemandirian AI Penuh (Ketik Perintah / Tanya Apa Saja):*\n"
         "Anda bisa menyuruh saya melakukan tugas-tugas teknis maupun strategis langsung lewat chat biasa, contohnya:\n"
         "🛠️ *Teknis:* _'Buatkan skrip python untuk generate multi-wallet BSC'_ atau _'Bagaimana cara setup wallet EVM yang aman?'_\n"
-        "🚰 *Faucet:* _'Berikan rekomendasi taktik mencari faucet koin gratisan testnet'_ atau _'Di mana cari gas fee gratisan?'_\n"
-        "📈 *Analisis:* _'Saring narasi crypto Alpha minggu ini'_ atau _'Buatkan rencana kerja berburu airdrop harian.'_\n\n"
+        "🚰 *Faucet:* _'Berikan rekomendasi taktik mencari faucet koin gratisan testnet'_\n"
+        "📈 *Analisis:* _'Saring narasi crypto Alpha minggu ini'_\n\n"
         "Silakan perintahkan apa saja, dan saya akan memprosesnya secara mandiri dengan kecerdasan AI!"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
@@ -64,18 +87,16 @@ async def alpha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = await fetch_alpha_trends()
     await update.message.reply_text(info, parse_mode="Markdown")
 
-# 4. Handler Kemandirian AI Total (Merespons Segala Perintah, Skrip, Faucet, dan Panduan)
+# 4. Handler Kemandirian AI Total (Dilengkapi Fitur Auto-Splitting Pesan Panjang)
 async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    
-    # Pengkondisian prompt agar AI memiliki otonomi penuh, fleksibel, solutif, dan mampu membuat skrip praktis
     system_prompt = (
         "Anda adalah AI Asisten Crypto Serbabisa yang mandiri, cerdas, solutif, dan ahli dalam urusan teknis maupun strategis.\n"
         "Anda memiliki kemandirian penuh untuk menjawab, menginstruksikan, dan membantu pengguna dalam segala skenario perintah:\n"
-        "1. Jika pengguna meminta dibuatkan wallet crypto atau multi-wallet, berikan penjelasan langkah amannya, dan jika perlu buatkan contoh kode/skrip pemrograman (seperti Python menggunakan web3.py atau bip-utils) yang bisa mereka jalankan sendiri secara lokal demi keamanan.\n"
+        "1. Jika pengguna meminta dibuatkan wallet crypto atau multi-wallet, berikan penjelasan langkah amannya, dan jika perlu buatkan contoh kode/skrip pemrograman (seperti Python menggunakan web3.py) yang bisa mereka jalankan sendiri secara lokal demi keamanan.\n"
         "2. Jika pengguna meminta rekomendasi link Faucet atau koin gratis, berikan taktik berburu faucet terbaik, sebutkan nama platform aggregator/faucet tepercaya (seperti tautan faucet testnet resmi, faucet jaringan TON/EVM), serta berikan trik agar tidak terkena jebakan phising.\n"
-        "3. Bertindaklah sebagai filter kebisingan (noise filter) yang tajam untuk menyajikan intisari alpha, pergerakan paus (whale), tren Twitter/X, dan rencana kerja (action plan) harian untuk berburu kripto.\n"
-        "4. Selalu gunakan gaya bahasa yang lugas, profesional, mudah dipahami, dan langsung memberikan solusi praktis (code blocks, bullet points, atau tabel jika diperlukan).\n\n"
+        "3. Bertindaklah sebagai filter kebisingan (noise filter) yang tajam untuk menyajikan intisari alpha, pergerakan paus (whale), tren Twitter/X, dan rencana kerja harian untuk berburu kripto.\n"
+        "4. Selalu gunakan gaya bahasa yang lugas, profesional, mudah dipahami, dan langsung memberikan solusi praktis.\n\n"
         f"Eksekusi secara mandiri perintah atau pertanyaan dari pengguna berikut: {user_message}"
     )
     
@@ -95,7 +116,17 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = await loop.run_in_executor(None, call_gemini)
             
             if response and hasattr(response, 'text') and response.text:
-                await update.message.reply_text(response.text)
+                # EKSEKUSI PEMOTONGAN TEKS JIKA TERLALU PANJANG
+                message_parts = split_message(response.text)
+                
+                for part in message_parts:
+                    # Cek jika ada format markdown yang tidak tertutup akibat pemotongan agar tidak error
+                    try:
+                        await update.message.reply_text(part, parse_mode="Markdown")
+                    except Exception:
+                        # Fallback jika parsing markdown error setelah teks dipotong
+                        await update.message.reply_text(part)
+                    await asyncio.sleep(0.5) # Jeda setengah detik agar tidak terkena spam-limit Telegram
                 return
             else:
                 await update.message.reply_text("🧠 AI terhubung, tetapi menghasilkan respons kosong. Coba ulangi perintah Anda.")
@@ -109,21 +140,19 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             logging.error(f"⚠️ GEMINI API ERROR: {str(e)}")
             error_message = (
-                "🧠 *Otak AI sedang mengalami antrean trafik!*\n\n"
+                "🧠 *Otak AI sedang mengalami kendala!*\n\n"
                 f"🔍 *Detail Kendala:* `{str(e)}`\n\n"
-                "💡 _Saran: Server Free-tier Google sedang padat. Silakan kirim ulang perintah Anda dalam beberapa saat._"
+                "💡 _Saran: Silakan kirim ulang perintah Anda dalam beberapa saat._"
             )
             await update.message.reply_text(error_message, parse_mode="Markdown")
             return
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("alpha", alpha_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ai_chat))
     
-    logging.info("Bot Crypto Serbabisa Mandiri berjalan...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
