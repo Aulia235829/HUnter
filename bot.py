@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
 from google.genai import errors
-from google.genai import types  # Tambahan untuk mengatur tingkat keamanan API
+from google.genai import types
 
 # Setup Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -60,7 +60,7 @@ async def fetch_alpha_trends():
 # Handler Perintah /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "🤖 *Selamat Datang di Bot Asisten Crypto & AI Generator Mandiri!*\n\n"
+        "🤖 *Selamat Datang di Bot Asisten Crypto & AI Generator Mandiri v3!*\n\n"
         "🎨 *Cara Membuat Gambar:* \n"
         "Ketik pesan diawali kata *buatkan gambar* atau *draw*, contoh:\n"
         "• _buatkan gambar kucing lucu warna putih_\n\n"
@@ -87,21 +87,29 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Tolong masukkan deskripsi gambar setelah kata kunci. Contoh: `buatkan gambar kucing`")
             return
 
-        await update.message.reply_text(f"🎨 *Sedang melukis secara mandiri untuk:* _{prompt_gambar}_\n_Mohon tunggu sebentar..._", parse_mode="Markdown")
+        status_msg = await update.message.reply_text(f"🎨 *Sedang menerjemahkan & melukis secara mandiri untuk:* _{prompt_gambar}_\n_Mohon tunggu sebentar..._", parse_mode="Markdown")
         
         try:
             loop = asyncio.get_event_loop()
             
-            # Memanggil fungsi generator gambar dengan bypass safety settings tingkat rendah
+            # Trik Bypass: Menerjemahkan prompt bahasa Indonesia ke bahasa Inggris secara otomatis menggunakan bantuan teks Gemini terlebih dahulu
+            def translate_prompt():
+                trans_prompt = f"Translate this image prompt into a clear, non-offensive English description for an AI image generator. Do not include any meta-text, just the translation. Prompt: {prompt_gambar}"
+                res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=trans_prompt)
+                return res.text.strip() if res.text else prompt_gambar
+
+            english_prompt = await loop.run_in_executor(None, translate_prompt)
+            logging.info(f"Translated Prompt for Google Imagen: {english_prompt}")
+            
+            # Memanggil fungsi generator gambar dengan prompt bahasa Inggris murni
             def generate_image():
                 return ai_client.models.generate_images(
                     model='imagen-3.0-generate-002',
-                    prompt=prompt_gambar,
+                    prompt=english_prompt,
                     config=types.GenerateImagesConfig(
                         number_of_images=1,
                         aspect_ratio="1:1",
-                        # Memaksa sistem mengizinkan konten umum agar tidak salah sensor
-                        safety_filter_level="BLOCK_LOW_AND_ABOVE" 
+                        safety_filter_level="BLOCK_LOW_AND_ABOVE"
                     )
                 )
                 
@@ -113,6 +121,10 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     image_file = io.BytesIO(raw_bytes)
                     image_file.name = 'ai_generation.jpg'
                     
+                    # Hapus pesan status tunggu agar chat rapi
+                    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=status_msg.message_id)
+                    
+                    # Kirim Gambar Asli
                     await update.message.reply_photo(photo=image_file, caption=f"✨ Hasil kreasi mandiri untuk: *{prompt_gambar}*", parse_mode="Markdown")
                     return
             else:
