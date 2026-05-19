@@ -5,89 +5,82 @@ import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
-from web3 import Web3  # Tambahan untuk fitur menggarap Web3
 
 # Setup Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-RPC_URL = os.getenv("RPC_URL", "https://bsc-dataseed.binance.org/") 
-PRIVATE_KEY = os.getenv("PRIVATE_KEY") 
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
-# Inisialisasi Klien AI Gemini
+# Inisialisasi Klien AI Gemini terbaru
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
-w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# Fungsi Mencari Airdrop
-async def fetch_crypto_airdrops():
+# 1. Fitur Utama: Memindai Tren Airdrop & Alpha dari API Crypto Publik
+async def fetch_alpha_trends():
     try:
+        # Mengambil data trending market & search volume terbaru dari CoinGecko
         url = "https://api.coingecko.com/api/v3/search/trending"
         loop = asyncio.get_event_loop()
         response_raw = await loop.run_in_executor(None, lambda: requests.get(url, timeout=10))
         response = response_raw.json()
         
-        airdrop_msg = "🎁 *Daftar Potensi Airdrop Terbaru:* \n\n"
+        alpha_msg = "🔥 *Crypto Alpha & Trending Report (Jaringan Terdeteksi):* \n\n"
         for idx, coin in enumerate(response['coins'][:5], 1):
             name = coin['item']['name']
             symbol = coin['item']['symbol']
-            airdrop_msg += f"{idx}. *{name} ({symbol})*\n   🔗 Pantau aktivitas on-chain untuk potensi klaim.\n\n"
-        return airdrop_msg
-    except Exception as e:
-        return "❌ Gagal mengambil data airdrop."
-
-# Fungsi Menggarap / Eksekusi Transaksi Otomatis
-async def execute_auto_claim():
-    if not PRIVATE_KEY:
-        return "⚠️ Fitur garap otomatis belum aktif. Anda harus mengisi `PRIVATE_KEY` dompet burner di Railway Variables."
-    
-    try:
-        account = w3.eth.account.from_key(PRIVATE_KEY)
-        wallet_address = account.address
-        balance_wei = w3.eth.get_balance(wallet_address)
-        balance = w3.from_wei(balance_wei, 'ether')
-        
-        if balance < 0.001:
-            return f"❌ Saldo Gas Fee di dompet `{wallet_address[:6]}...{wallet_address[-4:]}` tidak cukup untuk menggarap transaksi."
+            market_rank = coin['item']['market_cap_rank']
+            sparkline = coin['item'].get('data', {}).get('sparkline', 'Tidak tersedia')
             
-        return f"✅ *Proses Garap Sukses!* \n🤖 Bot berhasil berinteraksi dengan jaringan menggunakan dompet: `{wallet_address[:6]}...{wallet_address[-4:]}`\nStatus: Menunggu distribusi koin gratis."
+            alpha_msg += f"{idx}. *{name} ({symbol})*\n"
+            alpha_msg += f"   📌 Global Rank: #{market_rank}\n"
+            alpha_msg += f"   💡 Potensi Alpha: Proyek ini sedang mengalami lonjakan pencarian on-chain. Periksa komunitas mereka untuk potensi insentif/airdrop tersembunyi.\n\n"
+            
+        alpha_msg += "🔮 *Tips Intelijen:* Proyek alpha terbaik sering kali dimulai dari diskusi awal di Twitter/X. Gunakan laporan tren di atas sebagai panduan riset mendalam Anda!"
+        return alpha_msg
     except Exception as e:
-        logging.error(f"Gagal menggarap: {e}")
-        return f"❌ Error saat menggarap transaksi on-chain: {str(e)}"
+        logging.error(f"Error fetching alpha data: {e}")
+        return "❌ Gagal memindai data Alpha terbaru dari server. Silakan coba beberapa saat lagi."
 
-# Handler Perintah /start
+# 2. Handler Perintah /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "🤖 *Selamat Datang di Bot AI Hunter v2!*\n\n"
-        "Sekarang saya bisa mencari sekaligus menggarap:\n"
-        "👉 /airdrop - Mencari info koin tren terbaru.\n"
-        "👉 /garap - Memulai eksekusi klaim/interaksi otomatis ke jaringan blockchain.\n\n"
-        "Atau tanyakan apa saja, saya akan menjawab mandiri."
+        "🤖 *Selamat Datang di Bot Intelijen Crypto & Alpha Hunter!*\n\n"
+        "Saya adalah asisten analis mandiri Anda. Gunakan perintah berikut:\n"
+        "👉 /alpha - Memindai koin dan proyek yang sedang mengalami lonjakan volume pencarian (Potensi Alpha & Airdrop).\n\n"
+        "💬 *Kemandirian AI (Chat Bebas):*\n"
+        "Anda bisa mengetik langsung pertanyaan atau kueri spesifik kepada saya, seperti:\n"
+        "• _'Apa narasi DeFi yang potensial minggu ini?'_\n"
+        "• _'Berikan panduan cara mencari proyek airdrop yang aman dari phising.'_\n"
+        "• _'Analisis potensi token layer 2 baru.'_\n\n"
+        "Saya akan menganalisis data dan memberikan insight terbaik secara mandiri!"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# Handler Perintah /airdrop
-async def airdrop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔍 Memindai jaringan crypto...", parse_mode="Markdown")
-    info = await fetch_crypto_airdrops()
+# 3. Handler Perintah /alpha
+async def alpha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔍 Memindai metrik on-chain dan volume pencarian crypto terbaru...", parse_mode="Markdown")
+    info = await fetch_alpha_trends()
     await update.message.reply_text(info, parse_mode="Markdown")
 
-# Handler Perintah /garap
-async def garap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⚙️ Memulai proses penggarapan otomatis pada blockchain target...", parse_mode="Markdown")
-    result = await execute_auto_claim()
-    await update.message.reply_text(result, parse_mode="Markdown")
-
-# Handler Chat AI Mandiri dengan Fitur Auto-Retry jika Server Google Padat
+# 4. Handler Kemandirian AI (Analis Crypto, Tren Twitter, dan Kebijakan Alpha)
 async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    system_prompt = f"Anda adalah AI expert crypto. Jawab dengan cerdas, ringkas, dan jelas: {user_message}"
+    
+    # Rekayasa prompt agar AI bertindak sebagai analis handal sesuai dengan spesifikasi tugas Anda
+    system_prompt = (
+        "Anda adalah AI Asisten Intelijen Crypto, pemburu Alpha, dan penasihat strategi Airdrop yang mandiri, tajam, dan solutif.\n"
+        "Tugas utama Anda:\n"
+        "1. Membantu mengidentifikasi peluang airdrop, kriteria kelayakan, panduan langkah demi langkah, dan menyaring kebisingan (filtering noise).\n"
+        "2. Mendeteksi narasi trending, potensi Alpha (seperti pergerakan whale, proyek baru sebelum mainstream), dan melakukan analisis sentimen pasar.\n"
+        "3. Jika ditanya tentang 'eksekusi klaim/menggarap langsung', jelaskan secara edukatif bahwa Anda adalah alat analisis informasi (tidak memegang private key demi keamanan), tetapi Anda sangat kuat dalam mencari data alpha.\n\n"
+        f"Jawab kueri spesifik dari pengguna berikut dengan cerdas dan jelas: {user_message}"
+    )
     
     max_retries = 3
-    retry_delay = 2  # Waktu tunggu sebelum coba lagi (detik)
+    retry_delay = 2
     
     for attempt in range(max_retries):
         try:
@@ -103,35 +96,35 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if response and hasattr(response, 'text') and response.text:
                 await update.message.reply_text(response.text)
-                return  # Sukses keluar dari fungsi
+                return
             else:
-                await update.message.reply_text("🧠 AI terhubung, tetapi menghasilkan jawaban kosong. Coba tanyakan hal lain.")
+                await update.message.reply_text("🧠 AI terhubung, tetapi menghasilkan analisis kosong. Coba tanyakan sudut pandang lain.")
                 return
                 
         except Exception as e:
-            # Jika errornya karena server padat (503) dan jatah mencoba masih ada, kita tunggu lalu coba lagi
             if "503" in str(e) and attempt < max_retries - 1:
-                logging.warning(f"Server padat (Cobaan ke-{attempt+1}), mencoba kembali dalam {retry_delay} detik...")
+                logging.warning(f"Server Google padat (Upaya ke-{attempt+1}), mencoba lagi dalam {retry_delay} detik...")
                 await asyncio.sleep(retry_delay)
                 continue
                 
-            # Jika sudah mentok gagal terus atau error jenis lain, kirim pesan error
             logging.error(f"⚠️ GEMINI API ERROR: {str(e)}")
             error_message = (
-                "🧠 *Otak AI sedang gangguan!*\n\n"
-                f"🔍 *Detail Error Resmi:* `{str(e)}`\n\n"
-                "💡 _Catatan: Server Google gratisan sedang sangat padat. Coba kirim pesan lagi dalam 1-2 menit ke depan._"
+                "🧠 *Otak AI sedang mengalami antrean trafik!*\n\n"
+                f"🔍 *Detail Kendala:* `{str(e)}`\n\n"
+                "💡 _Saran: Server Free-tier Google sedang padat. Silakan kirim ulang pertanyaan Anda dalam 1 menit ke depan._"
             )
             await update.message.reply_text(error_message, parse_mode="Markdown")
             return
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
+    
+    # Registrasi Command & Message Handlers terbaru
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("airdrop", airdrop_command))
-    app.add_handler(CommandHandler("garap", garap_command))
+    app.add_handler(CommandHandler("alpha", alpha_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ai_chat))
     
+    logging.info("Bot Alpha Hunter berbasis Gemini 2.5 berjalan...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
