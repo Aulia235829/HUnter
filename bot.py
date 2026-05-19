@@ -31,7 +31,7 @@ MY_PROFILE_DATA = {
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("ERROR: Token Telegram atau Gemini belum diisi di Railway!")
 
-# Inisialisasi Klien AI Gemini
+# Inisialisasi Klien AI Gemini Resmi (Format 2026)
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Fungsi Memotong Teks Panjang untuk Telegram
@@ -52,7 +52,7 @@ def split_message(text, max_length=4000):
         text = text[split_at:].lstrip()
     return parts
 
-# 🧠 LOGIKA PINTAR: Menggunakan gemini-1.5-flash untuk kuota melimpah
+# 🧠 LOGIKA PINTAR: Menggunakan gemini-2.5-flash versi Stabil Resmi
 async def smart_ai_analyze_and_fill(url):
     try:
         async with async_playwright() as p:
@@ -96,13 +96,13 @@ async def smart_ai_analyze_and_fill(url):
                 '[{"index": 0, "fill_value": "nilai_data_profil", "detected_as": "Alamat Wallet"}, {"index": 1, "fill_value": "nilai_data_profil", "detected_as": "Username Twitter"}]'
             )
             
+            # Penggunaan Model Stabil yang Didukung Penuh 
             def call_gemini_analysis():
-                res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt)
+                res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=system_prompt)
                 return res.text.strip() if res.text else "[]"
                 
             ai_decision_text = await loop.run_in_executor(None, call_gemini_analysis)
             
-            # --- PERBAIKAN BARIS 107 (MENGGUNAKAN STRIP & REPLACE YANG AMAN) ---
             ai_decision_text = ai_decision_text.strip("`").replace("json", "").strip()
 
             decisions = json.loads(ai_decision_text)
@@ -138,7 +138,7 @@ async def smart_ai_analyze_and_fill(url):
 # Handler Perintah /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "🤖 *Selamat Datang di Bot Intelijen Airdrop v5 (Kapasitas Besar)!*\n\n"
+        "🤖 *Selamat Datang di Bot Intelijen Airdrop v5 (Fase Stabil)!*\n\n"
         "Fitur Utama AI Mandiri:\n"
         "👉 `/isi [URL_SITUS]` - Mengisi data airdrop pintar bebas limit harian kaku.\n\n"
         "🎨 *Gambar:* Ketik `buatkan gambar [deskripsi]`\n"
@@ -171,8 +171,9 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg = await update.message.reply_text("🎨 *Sedang memproses lukisan Anda...*", parse_mode="Markdown")
         try:
             loop = asyncio.get_event_loop()
+            
             def translate_prompt():
-                res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=f"Translate to English: {prompt_gambar}")
+                res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=f"Translate to English: {prompt_gambar}")
                 return res.text.strip() if res.text else prompt_gambar
             english_prompt = await loop.run_in_executor(None, translate_prompt)
             
@@ -200,7 +201,7 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     system_prompt = f"Anda adalah AI Asisten Crypto Serbabisa yang mandiri dan solutif. Jawab pertanyaan pengguna: {user_message}"
     try:
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt))
+        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(model='gemini-2.5-flash', contents=system_prompt))
         if response and response.text:
             for part in split_message(response.text):
                 await update.message.reply_text(part, parse_mode="Markdown")
