@@ -52,18 +52,16 @@ def split_message(text, max_length=4000):
         text = text[split_at:].lstrip()
     return parts
 
-# LOGIKA PINTAR: AI Menganalisis Struktur Form & Mengisi Menggunakan Profil Anda
+# 🧠 LOGIKA PINTAR: Menggunakan gemini-1.5-flash untuk kuota melimpah
 async def smart_ai_analyze_and_fill(url):
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             
-            # Buka situs target
             await page.goto(url, timeout=30000)
             await page.wait_for_load_state("networkidle")
             
-            # Ambil semua elemen input di situs web beserta atribut penandanya
             inputs = await page.query_selector_all("input, textarea, select")
             form_structure = []
             
@@ -87,30 +85,31 @@ async def smart_ai_analyze_and_fill(url):
                 await browser.close()
                 return "⚠️ Bot tidak menemukan kolom input teks apa pun di dalam situs web tersebut."
 
-            # Kirim struktur form ke AI Gemini untuk dianalisis secara pintar
             loop = asyncio.get_event_loop()
             system_prompt = (
                 "Anda adalah AI Detektif Formulir Web. Tugas Anda adalah mencocokkan kolom input situs web dengan data profil pengguna.\n"
                 f"Data Profil Pengguna yang Tersedia: {json.dumps(MY_PROFILE_DATA)}\n\n"
                 f"Struktur Formulir Situs Web: {json.dumps(form_structure)}\n\n"
                 "Instruksi:\n"
-                "Analisis setiap kolom input berdasarkan placeholder, name, atau id-nya. Tentukan data profil mana yang paling cocok dimasukkan.\n"
-                "Kembalikan jawaban dalam format JSON murni berbentuk list objek seperti contoh ini (jangan beri teks penjelasan tambahan, langsung berformat JSON):\n"
-                '[{"index": 0, "fill_value": "nilai_data_profil", "detected_as": "Alamat Wallet"}]'
+                "Analisis setiap kolom input berdasarkan 'placeholder', 'name', atau 'id'-nya. Tentukan data profil mana yang paling cocok dimasukkan ke kolom tersebut.\n"
+                "Kembalikan jawaban dalam format JSON murni berbentuk list/array objek seperti contoh ini (jangan beri teks penjelasan tambahan):\n"
+                '[{"index": 0, "fill_value": "nilai_data_profil", "detected_as": "Alamat Wallet"}, {"index": 1, "fill_value": "nilai_data_profil", "detected_as": "Username Twitter"}]'
             )
             
+            # DIGANTI KE MODEL 1.5-FLASH BIAR ANTI-LIMIT
             def call_gemini_analysis():
-                res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=system_prompt)
+                res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt)
                 return res.text.strip() if res.text else "[]"
                 
             ai_decision_text = await loop.run_in_executor(None, call_gemini_analysis)
             
-            # Perbaikan Kebal Error: Membersihkan tag markdown tanpa menggunakan penanda kutip tiga yang rawan rusak
-            ai_decision_text = ai_decision_text.replace("json", "")
-            ai_decision_text = ai_decision_text.replace("`", "")
-            ai_decision_text = ai_decision_text.strip()
+            if ai_decision_text.startswith("```json"):
+                ai_decision_text = ai_decision_text.replace("
+```json", "").replace("```", "").strip()
+            elif ai_decision_text.startswith("```"):
+                ai_decision_text = ai_decision_text.replace("
+```", "").strip()
 
-            # Jalankan pengisian otomatis berdasarkan keputusan pintar AI
             decisions = json.loads(ai_decision_text)
             report_details = ""
             
@@ -122,10 +121,9 @@ async def smart_ai_analyze_and_fill(url):
                 if not val_to_fill or val_to_fill in ["", "none", "null"]:
                     continue
                 
-                await inputs[idx].fill(str(val_to_fill))
+                await inputs[idx].fill(val_to_fill)
                 report_details += f"• Kolom terdeteksi sebagai *{detected_type}* -> Berhasil diisi secara pintar.\n"
 
-            # Cari dan klik tombol submit jika ada
             submit_btn = await page.query_selector("button[type='submit'], input[type='submit'], .submit-btn, button:has-text('Join'), button:has-text('Register'), button:has-text('Submit')")
             if submit_btn and report_details:
                 await submit_btn.click()
@@ -145,23 +143,22 @@ async def smart_ai_analyze_and_fill(url):
 # Handler Perintah /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "🤖 *Selamat Datang di Bot Intelijen Airdrop v5 (Smart Filler)!*\n\n"
+        "🤖 *Selamat Datang di Bot Intelijen Airdrop v5 (Kapasitas Besar)!*\n\n"
         "Fitur Utama AI Mandiri:\n"
-        "👉 `/isi [URL_SITUS]` - Bot akan membuka browser, menyalin struktur form, meminta AI menganalisis apa saja yang harus diisi agar sesuai dengan situs, lalu otomatis mengetik datanya dan mengirimkan laporan pintar.\n\n"
+        "👉 `/isi [URL_SITUS]` - Mengisi data airdrop pintar bebas limit harian kaku.\n\n"
         "🎨 *Gambar:* Ketik `buatkan gambar [deskripsi]`\n"
         "💬 *Chat AI:* Bicara atau perintahkan apa saja, saya akan merespons pintar."
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# Handler Perintah /isi (Smart Auto-Fill)
+# Handler Perintah /isi
 async def isi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("⚠️ Format salah. Contoh penggunaan:\n`/isi https://situsairdrop.com/join`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Format salah. Contoh:\n`/isi [https://situsairdrop.com/join](https://situsairdrop.com/join)`", parse_mode="Markdown")
         return
         
     target_url = context.args[0]
     await update.message.reply_text("🧠 *AI sedang mendeteksi & menganalisis secara pintar apa saja yang harus diisi pada situs target...*", parse_mode="Markdown")
-    
     report = await smart_ai_analyze_and_fill(target_url)
     await update.message.reply_text(report, parse_mode="Markdown")
 
@@ -179,8 +176,9 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg = await update.message.reply_text("🎨 *Sedang memproses lukisan Anda...*", parse_mode="Markdown")
         try:
             loop = asyncio.get_event_loop()
+            # DIUBAH KE MODEL 1.5-FLASH UNTUK PENERJEMAH PROMPT
             def translate_prompt():
-                res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=f"Translate to English: {prompt_gambar}")
+                res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=f"Translate to English: {prompt_gambar}")
                 return res.text.strip() if res.text else prompt_gambar
             english_prompt = await loop.run_in_executor(None, translate_prompt)
             
@@ -204,11 +202,11 @@ async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Gagal memproses gambar: `{str(e)}`")
             return
 
-    # CHAT TEKS BIASA
+    # CHAT TEKS BIASA - DIUBAH KE MODEL 1.5-FLASH
     system_prompt = f"Anda adalah AI Asisten Crypto Serbabisa yang mandiri dan solutif. Jawab pertanyaan pengguna: {user_message}"
     try:
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(model='gemini-2.5-flash', contents=system_prompt))
+        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(model='gemini-1.5-flash', contents=system_prompt))
         if response and response.text:
             for part in split_message(response.text):
                 await update.message.reply_text(part, parse_mode="Markdown")
